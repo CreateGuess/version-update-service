@@ -40,7 +40,7 @@ public:
     };
 
 public:
-    // 获取软件包目录，后端区分架构，前端不区分架构
+    // 获取软件包目录，后端区分架构，frontend 固定使用 robot-platform 项目目录
     static std::optional<fs::path> getPackageDirectory(const std::string &arch, const std::string &channel, const std::string &type);
     // 获取软件包根目录（可通过 CODEIT_PACKAGE_ROOT 配置）
     static fs::path getPackageRoot();

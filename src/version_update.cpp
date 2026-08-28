@@ -60,10 +60,10 @@ std::optional<fs::path> VersionUpdate::getPackageDirectory(const std::string &ar
         return getPackageRoot() / (type + "_" + arch) / channel;
     }
 
-    // 3. 前端软件包不区分架构，只按照发布通道存放
+    // 3. robot-platform 前端包不区分架构，按照发布通道和项目目录存放
     if (type == "frontend")
     {
-        return getPackageRoot() / type / channel;
+        return getPackageRoot() / type / channel / "robot-platform";
     }
     return std::nullopt;
 }

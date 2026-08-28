@@ -18,7 +18,7 @@ cmake --build build -j
 
 ```text
 /home/codeit/codeit-deploy_<架构>/<通道>/v1.2.3.zip
-/home/codeit/frontend/<通道>/v1.2.3.zip
+/home/codeit/frontend/<通道>/robot-platform/v1.2.3.zip
 ```
 
 例如：
@@ -26,12 +26,12 @@ cmake --build build -j
 ```text
 /home/codeit/codeit-deploy_x86_64/release/v1.2.3.zip
 /home/codeit/codeit-deploy_nvidia-orin/test/v1.2.3.zip
-/home/codeit/frontend/test/v2.0.0.zip
+/home/codeit/frontend/test/robot-platform/v2.0.0.zip
 ```
 
 支持：
 
-- 类型：`codeit-deploy`、`frontend`
+- 类型：`codeit-deploy`、`frontend`（当前对应 `robot-platform`）
 - 架构：`x86_64`、`aarch64`、`nvidia-orin`（仅后端软件包使用）
 - 通道：`test`、`release`
 
