@@ -22,6 +22,48 @@ json errorBody(const std::string &code, const std::string &message)
     return {{"error", code}, {"message", message}};
 }
 
+bool readString(const json &body, const char *field, std::string &value)
+{
+    const auto iterator = body.find(field);
+    if (iterator == body.end())
+    {
+        value.clear();
+        return true;
+    }
+    if (!iterator->is_string())
+    {
+        return false;
+    }
+    value = iterator->get<std::string>();
+    return true;
+}
+
+bool parseRequestJson(const httplib::Request &request, json &body, httplib::Response &response)
+{
+    body = json::parse(request.body, nullptr, false);
+    if (body.is_discarded() || !body.is_object())
+    {
+        VersionUpdate::sendJson(response, 400, errorBody("invalid_json", "请求体必须是JSON对象"));
+        return false;
+    }
+    return true;
+}
+
+bool parsePackageQuery(const json &body, VersionUpdate::PackageQuery &query, httplib::Response &response)
+{
+    if (!readString(body, "type", query.type) ||
+        !readString(body, "name", query.name) ||
+        !readString(body, "arch", query.arch) ||
+        !readString(body, "platform", query.platform) ||
+        !readString(body, "os", query.os) ||
+        !readString(body, "channel", query.channel))
+    {
+        VersionUpdate::sendJson(response, 400, errorBody("invalid_parameters", "查询字段必须是字符串"));
+        return false;
+    }
+    return true;
+}
+
 /**
  * @brief 停止HTTP服务
  * @param signal 系统信号
@@ -42,14 +84,19 @@ void stopServer(int)
  */
 void handleVersion(const httplib::Request &request, httplib::Response &response)
 {
-    // 1. 获取并检查请求参数
-    const std::string type = request.matches[1].str();
-    const std::string arch = request.matches[2].str();
-    const std::string channel = request.matches[3].str();
-    const auto directory = VersionUpdate::getPackageDirectory(arch, channel, type);
+    // 1. 从JSON请求体获取并检查软件包维度
+    json body;
+    VersionUpdate::PackageQuery query;
+    if (!parseRequestJson(request, body, response) ||
+        !parsePackageQuery(body, query, response))
+    {
+        return;
+    }
+
+    const auto directory = VersionUpdate::getPackageDirectory(query);
     if (!directory)
     {
-        VersionUpdate::sendJson(response, 400, errorBody("invalid_parameters", "不支持的软件包类型、架构或发布通道"));
+        VersionUpdate::sendJson(response, 400, errorBody("invalid_parameters", "软件包查询参数不完整或不合法"));
         return;
     }
 
@@ -62,7 +109,7 @@ void handleVersion(const httplib::Request &request, httplib::Response &response)
     }
 
     // 3. 获取缓存或重新创建版本信息
-    json result = VersionUpdate::getOrCreateVersionJson(type, arch, channel, *directory, packages);
+    json result = VersionUpdate::getOrCreateVersionJson(query, *directory, packages);
 
     // 4. 返回版本信息
     VersionUpdate::sendJson(response, 200, result);
@@ -75,10 +122,22 @@ void handleVersion(const httplib::Request &request, httplib::Response &response)
  */
 void handlePackage(const httplib::Request &request, httplib::Response &response)
 {
-    // 1. 获取软件包文件路径
-    const auto package = VersionUpdate::getPackageFile(
-        request.matches[1].str(), request.matches[2].str(),
-        request.matches[3].str(), request.matches[4].str());
+    // 1. 从JSON请求体获取软件包维度和文件名
+    json body;
+    VersionUpdate::PackageQuery query;
+    std::string filename;
+    if (!parseRequestJson(request, body, response) ||
+        !parsePackageQuery(body, query, response))
+    {
+        return;
+    }
+    if (!readString(body, "filename", filename) || filename.empty())
+    {
+        VersionUpdate::sendJson(response, 400, errorBody("invalid_parameters", "filename必须是非空字符串"));
+        return;
+    }
+
+    const auto package = VersionUpdate::getPackageFile(query, filename);
     if (!package)
     {
         VersionUpdate::sendJson(response, 404, errorBody("package_not_found", "软件包不存在"));
@@ -105,8 +164,8 @@ int main()
         // 2. 注册HTTP接口
         server.Get("/health", [](const httplib::Request &, httplib::Response &response)
                    { VersionUpdate::sendJson(response, 200, {{"status", "ok"}}); });
-        server.Get(R"(/api/version/([^/]+)/([^/]+)/([^/]+))", handleVersion);
-        server.Get(R"(/api/packages/([^/]+)/([^/]+)/([^/]+)/([^/]+))", handlePackage);
+        server.Post("/api/version", handleVersion);
+        server.Post("/api/package", handlePackage);
 
         // 3. 注册请求异常处理器
         server.set_exception_handler([](const httplib::Request &, httplib::Response &response, std::exception_ptr exception)

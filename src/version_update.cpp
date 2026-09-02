@@ -7,6 +7,7 @@
 #include <ctime>
 #include <fstream>
 #include <iomanip>
+#include <iostream>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
@@ -18,7 +19,7 @@ std::map<std::string, VersionUpdate::CacheEntry> VersionUpdate::g_versionCache;
 
 /**
  * @brief 获取软件包根目录
- * @return 返回软件包根目录，默认为 /home/codeit
+ * @return 返回软件包根目录，默认为 /home/codeit/update
  */
 fs::path VersionUpdate::getPackageRoot()
 {
@@ -30,41 +31,61 @@ fs::path VersionUpdate::getPackageRoot()
     }
 
     // 2. 返回默认软件包根目录
-    return fs::path("/home/codeit");
+    return fs::path("/home/codeit/update");
 }
+
+namespace
+{
+bool isSafePathComponent(const std::string &value)
+{
+    static const std::regex componentRegex(R"(^[A-Za-z0-9][A-Za-z0-9._-]*$)");
+    return std::regex_match(value, componentRegex);
+}
+} // namespace
 
 /**
  * @brief 获取软件包目录
- * @param arch 架构类型，如 x86_64、aarch64
- * @param channel 渠道类型，如 test、release
- * @param type 软件包类型，如 codeit-deploy、frontend
+ * @param query 软件包查询维度
  * @return 返回软件包目录路径，如果参数不合法则返回 std::nullopt
  */
-std::optional<fs::path> VersionUpdate::getPackageDirectory(const std::string &arch, const std::string &channel, const std::string &type)
+std::optional<fs::path> VersionUpdate::getPackageDirectory(const PackageQuery &query)
 {
-    // 1. 合法性检查
-    if (arch.empty() || channel.empty() || type.empty())
+    // 每个字段必须是单个安全路径片段，禁止绝对路径和目录穿越。
+    if (!isSafePathComponent(query.type) || !isSafePathComponent(query.channel))
     {
         return std::nullopt;
     }
 
-    if ((arch != "x86_64" && arch != "aarch64" && arch != "nvidia-orin") ||
-        (channel != "test" && channel != "release"))
+    if (query.type == "codeit-deploy" || query.type == "codeit-lib")
     {
-        return std::nullopt;
+        if (!query.name.empty() || !isSafePathComponent(query.arch) ||
+            !isSafePathComponent(query.platform) || !isSafePathComponent(query.os))
+        {
+            return std::nullopt;
+        }
+        return getPackageRoot() / query.type / query.arch / query.platform / query.os / query.channel;
     }
 
-    // 2. 构建后端软件包目录路径
-    if (type == "codeit-deploy")
+    if (query.type == "backend")
     {
-        return getPackageRoot() / (type + "_" + arch) / channel;
+        if (!isSafePathComponent(query.name) || !isSafePathComponent(query.arch) ||
+            !query.platform.empty() || !query.os.empty())
+        {
+            return std::nullopt;
+        }
+        return getPackageRoot() / query.type / query.name / query.arch / query.channel;
     }
 
-    // 3. robot-platform 前端包不区分架构，按照发布通道和项目目录存放
-    if (type == "frontend")
+    if (query.type == "frontend")
     {
-        return getPackageRoot() / type / channel / "robot-platform";
+        if (!isSafePathComponent(query.name) || !query.arch.empty() ||
+            !query.platform.empty() || !query.os.empty())
+        {
+            return std::nullopt;
+        }
+        return getPackageRoot() / query.type / query.name / query.channel;
     }
+
     return std::nullopt;
 }
 
@@ -245,7 +266,11 @@ std::string VersionUpdate::getCurrentUtcTime()
 
     std::tm timeInfo{};
 
+#ifdef _WIN32
+    gmtime_s(&timeInfo, &now);
+#else
     gmtime_r(&now, &timeInfo);
+#endif
 
     std::ostringstream output;
 
@@ -255,26 +280,25 @@ std::string VersionUpdate::getCurrentUtcTime()
 }
 
 /**
- * @brief 构建软件包下载URL
- * @param type 类型，如 codeit-deploy、frontend
- * @param arch 架构
- * @param channel 发布通道
- * @param filename 文件名
- * @return 软件包下载URL，例如：/api/packages/codeit-deploy/x86_64/release/v1.3.10.zip
+ * @brief 将软件包查询维度转换为JSON
  */
-std::string VersionUpdate::buildPackageUrl(const std::string &type, const std::string &arch, const std::string &channel, const std::string &filename)
+json VersionUpdate::createQueryJson(const PackageQuery &query)
 {
-    return "/api/packages/" + type + "/" + arch + "/" + channel + "/" + filename;
+    json result = {{"type", query.type}, {"channel", query.channel}};
+    if (!query.name.empty()) result["name"] = query.name;
+    if (!query.arch.empty()) result["arch"] = query.arch;
+    if (!query.platform.empty()) result["platform"] = query.platform;
+    if (!query.os.empty()) result["os"] = query.os;
+    return result;
 }
 
 /**
  * @brief 创建version.json
- * @param arch 架构类型
- * @param channel 渠道类型
+ * @param query 软件包查询维度
  * @param packages 软件包信息列表
  * @return 返回生成的version.json对象
  */
-json VersionUpdate::createVersionJson(const std::string &type, const std::string &arch, const std::string &channel, const std::vector<VersionUpdate::PackageInfo> &packages)
+json VersionUpdate::createVersionJson(const PackageQuery &query, const std::vector<VersionUpdate::PackageInfo> &packages)
 {
     // 1. 合理性检查
     if (packages.empty())
@@ -284,9 +308,7 @@ json VersionUpdate::createVersionJson(const std::string &type, const std::string
 
     // 2. 构建version.json对象
     json result;
-    result["type"] = type;
-    result["arch"] = arch;
-    result["channel"] = channel;
+    result["query"] = createQueryJson(query);
 
     // 第0个就是最新版本
     result["latest_version"] = packages.front().version.toString();
@@ -302,7 +324,12 @@ json VersionUpdate::createVersionJson(const std::string &type, const std::string
         item["version"] = package.version.toString();
         item["is_latest"] = (i == 0);
         item["filename"] = filename;
-        item["url"] = buildPackageUrl(type, arch, channel, filename);
+        json downloadBody = createQueryJson(query);
+        downloadBody["filename"] = filename;
+        item["download"] = {
+            {"method", "POST"},
+            {"url", "/api/package"},
+            {"body", std::move(downloadBody)}};
         item["size"] = fs::file_size(package.path);
         item["sha256"] = calculateSha256(package.path);
         result["packages"].push_back(std::move(item));
@@ -338,18 +365,16 @@ std::vector<VersionUpdate::PackageSnapshot> VersionUpdate::createPackageSnapshot
 
 /**
  * @brief 获取或创建version.json
- * @param type 软件包类型
- * @param arch 架构类型
- * @param channel 发布通道
+ * @param query 软件包查询维度
  * @param directory 软件包目录
  * @param packages 最新的软件包信息列表
  * @return 返回缓存或重新生成的version.json对象
  */
-json VersionUpdate::getOrCreateVersionJson(const std::string &type, const std::string &arch, const std::string &channel, const fs::path &directory, const std::vector<VersionUpdate::PackageInfo> &packages)
+json VersionUpdate::getOrCreateVersionJson(const PackageQuery &query, const fs::path &directory, const std::vector<VersionUpdate::PackageInfo> &packages)
 {
     // 1. 创建当前软件包目录快照和缓存键
     const std::vector<PackageSnapshot> currentSnapshot = createPackageSnapshot(packages);
-    const std::string cacheKey = type + "/" + arch + "/" + channel;
+    const std::string cacheKey = directory.lexically_normal().string();
 
     // 2. 加锁，避免多个请求同时更新缓存
     std::lock_guard<std::mutex> lock(g_cacheMutex);
@@ -361,9 +386,17 @@ json VersionUpdate::getOrCreateVersionJson(const std::string &type, const std::s
         return iterator->second.versionJson;
     }
 
-    // 4. 软件包发生变化时重新创建并保存version.json
-    json result = createVersionJson(type, arch, channel, packages);
-    saveVersionJson(directory, result);
+    // 4. 软件包发生变化时重新创建版本信息。version.json 只是磁盘缓存，
+    //    压缩包目录只读时不应导致查询接口失败。
+    json result = createVersionJson(query, packages);
+    try
+    {
+        saveVersionJson(directory, result);
+    }
+    catch (const std::exception &error)
+    {
+        std::cerr << "保存version.json失败，将仅使用内存缓存: " << error.what() << std::endl;
+    }
 
     // 5. 更新内存缓存
     CacheEntry entry;
@@ -437,13 +470,11 @@ void VersionUpdate::sendJson(httplib::Response &response, int status, const json
 
 /**
  * @brief 获取软件包文件路径
- * @param type 类型，如 codeit-deploy、frontend
- * @param arch 架构
- * @param channel 发布通道
+ * @param query 软件包查询维度
  * @param filename 文件名
  * @return 软件包文件路径，如果不存在则返回std::nullopt
  */
-std::optional<fs::path> VersionUpdate::getPackageFile(const std::string &type, const std::string &arch, const std::string &channel, const std::string &filename)
+std::optional<fs::path> VersionUpdate::getPackageFile(const PackageQuery &query, const std::string &filename)
 {
     // 1. 检查文件名是否合法
     if (!parsePackageFilename(filename).has_value())
@@ -451,7 +482,7 @@ std::optional<fs::path> VersionUpdate::getPackageFile(const std::string &type, c
         return std::nullopt;
     }
     // 2. 获取软件包目录
-    auto directory = getPackageDirectory(arch, channel, type);
+    auto directory = getPackageDirectory(query);
     // 3. 检查目录是否存在
     if (!directory.has_value())
     {

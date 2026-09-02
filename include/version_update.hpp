@@ -17,6 +17,16 @@ using json = nlohmann::json;
 class VersionUpdate
 {
 public:
+    struct PackageQuery
+    {
+        std::string type;       // codeit-deploy、codeit-lib、backend、frontend
+        std::string name;       // backend/frontend 的组件名
+        std::string arch;       // 架构
+        std::string platform;   // 硬件平台
+        std::string os;         // 系统版本
+        std::string channel;    // 发布渠道
+    };
+
     struct VersionInfo
     {
         unsigned long long major{}; // 主版本号
@@ -40,8 +50,8 @@ public:
     };
 
 public:
-    // 获取软件包目录，后端区分架构，frontend 固定使用 robot-platform 项目目录
-    static std::optional<fs::path> getPackageDirectory(const std::string &arch, const std::string &channel, const std::string &type);
+    // 根据请求中的软件包维度获取目录
+    static std::optional<fs::path> getPackageDirectory(const PackageQuery &query);
     // 获取软件包根目录（可通过 CODEIT_PACKAGE_ROOT 配置）
     static fs::path getPackageRoot();
     // 解析软件包文件名
@@ -52,18 +62,18 @@ public:
     static std::string calculateSha256(const fs::path &filePath);
     // 获取当前UTC时间
     static std::string getCurrentUtcTime();
-    // 构建软件包下载URL
-    static std::string buildPackageUrl(const std::string &type, const std::string &arch, const std::string &channel, const std::string &filename);
+    // 将软件包查询维度转换为JSON
+    static json createQueryJson(const PackageQuery &query);
     // 创建version.json
-    static json createVersionJson(const std::string &type, const std::string &arch, const std::string &channel, const std::vector<PackageInfo> &packages);
+    static json createVersionJson(const PackageQuery &query, const std::vector<PackageInfo> &packages);
     // 获取缓存中的version.json，软件包发生变化时重新创建
-    static json getOrCreateVersionJson(const std::string &type, const std::string &arch, const std::string &channel, const fs::path &directory, const std::vector<PackageInfo> &packages);
+    static json getOrCreateVersionJson(const PackageQuery &query, const fs::path &directory, const std::vector<PackageInfo> &packages);
     // 保存version.json到指定目录
     static void saveVersionJson(const fs::path &directory, const json &data);
     // 发送JSON响应
     static void sendJson(httplib::Response &response, int status, const json &data);
     // 获取软件包文件路径
-    static std::optional<fs::path> getPackageFile(const std::string &type, const std::string &arch, const std::string &channel, const std::string &filename);
+    static std::optional<fs::path> getPackageFile(const PackageQuery &query, const std::string &filename);
 
 private:
     struct PackageSnapshot
