@@ -104,6 +104,7 @@ void handleVersion(const httplib::Request &request, httplib::Response &response)
     const auto packages = VersionUpdate::findLatestPackages(*directory, PublishedPackageCount);
     if (packages.empty())
     {
+        std::cerr << "没有找到软件包，扫描目录: " << directory->string() << std::endl;
         VersionUpdate::sendJson(response, 404, errorBody("package_not_found", "没有可用的软件包"));
         return;
     }
@@ -182,9 +183,11 @@ int main()
             VersionUpdate::sendJson(response, 500, errorBody("internal_error", message)); });
 
         // 4. 注册未找到接口处理器
-        server.set_error_handler([](const httplib::Request &, httplib::Response &response)
+        server.set_error_handler([](const httplib::Request &request, httplib::Response &response)
                                  {
-            if (response.status == 404)
+            // 仅将未匹配到任何路由的404转换为“接口不存在”。业务处理器
+            // 返回的package_not_found等404必须保留原始响应。
+            if (response.status == 404 && request.matched_route.empty())
                 VersionUpdate::sendJson(response, 404, errorBody("not_found", "接口不存在")); });
 
         // 5. 启动HTTP服务
