@@ -91,13 +91,15 @@ std::optional<fs::path> VersionUpdate::getPackageDirectory(const PackageQuery &q
 
 /**
  * @brief 解析软件包文件名，提取版本信息
- * @param filename 软件包文件名，如 v1.2.3.zip
+ * @param filename 软件包文件名，如 v1.2.3.zip、codeit-1.2.3.zip
  * @return 返回 VersionInfo 结构体，如果文件名不合法则返回 std::nullopt
  */
 std::optional<VersionUpdate::VersionInfo> VersionUpdate::parsePackageFilename(const std::string &filename)
 {
     // 1. 使用正则表达式匹配文件名
-    static const std::regex packageRegex(R"(^v([0-9]+)\.([0-9]+)\.([0-9]+)\.zip$)");
+    // 支持无前缀的 v1.2.3.zip，以及带软件名的 codeit-1.2.3.zip、codeit-v1.2.3.zip。
+    static const std::regex packageRegex(
+        R"(^(?:v|[A-Za-z0-9][A-Za-z0-9._-]*-v?)([0-9]+)\.([0-9]+)\.([0-9]+)\.zip$)");
     std::smatch match;
     if (!std::regex_match(filename, match, packageRegex))
     {
