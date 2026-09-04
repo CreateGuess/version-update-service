@@ -312,8 +312,6 @@ json VersionUpdate::createVersionJson(const PackageQuery &query, const std::vect
     json result;
     result["query"] = createQueryJson(query);
 
-    // 第0个就是最新版本
-    result["latest_version"] = packages.front().version.toString();
     result["packages"] = json::array();
 
     // 写入最近两个版本
@@ -321,9 +319,17 @@ json VersionUpdate::createVersionJson(const PackageQuery &query, const std::vect
     {
         const PackageInfo &package = packages[i];
         const std::string filename = package.path.filename().string();
+        // codeit-lib 对外使用原始文件名作为版本标识，内部仍按数字版本排序。
+        const std::string version = query.type == "codeit-lib"
+                                        ? filename
+                                        : package.version.toString();
+        if (i == 0)
+        {
+            result["latest_version"] = version;
+        }
 
         json item;
-        item["version"] = package.version.toString();
+        item["version"] = version;
         item["is_latest"] = (i == 0);
         item["filename"] = filename;
         json downloadBody = createQueryJson(query);
