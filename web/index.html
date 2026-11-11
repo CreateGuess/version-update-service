@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Codeit 版本包管理</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark" aria-hidden="true">C</div>
+    <div>
+      <p class="eyebrow">CODEIT UPDATE CENTER</p>
+      <h1>版本包管理</h1>
+    </div>
+    <div class="server-state"><span class="state-dot"></span>服务已连接</div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <p class="section-label">软件包仓库</p>
+        <h2>浏览、上传和下载发布包</h2>
+        <p>当前页面直接映射服务器的 <code>update</code> 目录。选择文件夹进入，点击 ZIP 即可下载。</p>
+      </div>
+      <button id="refreshButton" class="button secondary" type="button">刷新目录</button>
+    </section>
+
+    <nav id="breadcrumbs" class="breadcrumbs" aria-label="当前目录"></nav>
+
+    <section class="workspace">
+      <div class="content-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-label">目录内容</p>
+            <h3 id="currentTitle">update</h3>
+          </div>
+          <span id="itemCount" class="count-badge">0 项</span>
+        </div>
+
+        <div id="loading" class="loading">正在读取目录…</div>
+        <div id="emptyState" class="empty-state" hidden>
+          <div class="empty-icon">ZIP</div>
+          <h3>这个目录还是空的</h3>
+          <p>进入正确的发布目录，或在右侧上传一个 ZIP 软件包。</p>
+        </div>
+
+        <div id="directorySection" hidden>
+          <h4 class="group-title">文件夹</h4>
+          <div id="directoryGrid" class="directory-grid"></div>
+        </div>
+
+        <div id="fileSection" hidden>
+          <h4 class="group-title">ZIP 软件包</h4>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>文件名</th><th>识别版本</th><th>大小</th><th class="actions-column">操作</th></tr>
+              </thead>
+              <tbody id="fileTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <aside class="upload-panel">
+        <p class="section-label">上传软件包</p>
+        <h3>发布到当前目录</h3>
+        <p id="uploadPath" class="upload-path">/</p>
+
+        <label id="dropZone" class="drop-zone" for="fileInput">
+          <span class="upload-symbol">↑</span>
+          <strong>选择或拖入 ZIP 文件</strong>
+          <span>支持最大 2 GiB，文件名需包含三段版本号</span>
+          <input id="fileInput" type="file" accept=".zip,application/zip" hidden>
+        </label>
+
+        <div id="selectedFile" class="selected-file" hidden></div>
+        <div id="progressWrap" class="progress-wrap" hidden>
+          <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+          <span id="progressText">0%</span>
+        </div>
+
+        <label class="token-field">
+          <span>上传令牌（如服务已配置）</span>
+          <input id="tokenInput" type="password" placeholder="CODEIT_UPLOAD_TOKEN" autocomplete="off">
+        </label>
+
+        <button id="uploadButton" class="button primary" type="button" disabled>开始上传</button>
+        <p class="upload-note">同名文件不会被覆盖。如需替换，请先由管理员移走旧文件。</p>
+      </aside>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

@@ -62,11 +62,71 @@ v<主版本>.<次版本>.<修订版本>.zip
 | `GET` | `/health` | 服务健康检查 | 无 |
 | `POST` | `/api/version` | 查询指定目录下最新的两个版本 | JSON |
 | `POST` | `/api/package` | 下载指定版本的软件包 | JSON |
+| `GET` | `/api/files?path=<相对目录>` | 网页使用的目录与 ZIP 列表 | 无 |
+| `GET` | `/api/files/download?path=<相对文件>` | 浏览器直接下载 ZIP | 无 |
+| `POST` | `/api/files/upload?path=<相对目录>` | 上传 ZIP 到指定目录 | `multipart/form-data` |
 
-`POST` 接口必须使用请求头：
+`/api/version` 和 `/api/package` 必须使用请求头：
 
 ```http
 Content-Type: application/json
+```
+
+## Web 管理页面
+
+项目的 `web/` 目录包含无需构建的管理页面。部署后访问：
+
+```text
+http://127.0.0.1:28001/
+```
+
+通过本文 Nginx 配置访问：
+
+```text
+http://<服务器地址>:28000/
+```
+
+页面提供：
+
+- 从 `/home/codeit/update` 开始逐级浏览目录；
+- 显示当前目录下所有符合命名规则的 ZIP、识别版本和文件大小；
+- 点击 ZIP 直接下载；
+- 将最大 2 GiB 的 ZIP 流式上传到当前目录；
+- 显示上传进度，并拒绝覆盖同名文件。
+
+服务以 `codeit` 用户运行时，上传目标目录必须允许该用户写入。如果整个 `update` 目录都由该服务管理，可统一设置：
+
+```bash
+sudo chown -R codeit:codeit /home/codeit/update
+sudo find /home/codeit/update -type d -exec chmod 755 {} \;
+sudo find /home/codeit/update -type f -name '*.zip' -exec chmod 644 {} \;
+```
+
+网页接口中的 `path` 始终是相对于软件包根目录的路径，例如：
+
+```text
+codeit-lib/x86_64/generic/ubuntu-20.04/test
+```
+
+服务会拒绝绝对路径、反斜杠、`.`、`..` 以及通过符号链接跳出软件包根目录的路径。
+
+### 上传令牌
+
+可选环境变量 `CODEIT_UPLOAD_TOKEN` 用于保护网页上传接口。配置后，页面上传时必须在“上传令牌”输入框中填写相同内容；页面只把令牌保存在当前浏览器标签页的 `sessionStorage` 中。
+
+```ini
+Environment=CODEIT_UPLOAD_TOKEN=请替换为足够长的随机令牌
+```
+
+如果未配置该变量，任何能访问服务的人都能上传文件。生产环境强烈建议配置令牌，并通过 HTTPS 使用管理页面。
+
+也可以不经过页面，直接调用上传接口：
+
+```bash
+curl -fS -X POST \
+  'http://127.0.0.1:28001/api/files/upload?path=codeit-lib%2Fx86_64%2Fgeneric%2Fubuntu-20.04%2Ftest' \
+  -H 'Authorization: Bearer 请替换为上传令牌' \
+  -F 'file=@codeit-1.3.49.zip'
 ```
 
 ### JSON 字段说明
@@ -231,8 +291,13 @@ sha256sum v2.2.0.zip
 | --- | --- | --- |
 | `400` | `invalid_json` | 请求体不是合法 JSON，或 JSON 顶层不是对象 |
 | `400` | `invalid_parameters` | 字段不是字符串、必填字段缺失、字段组合错误或含非法路径字符 |
+| `400` | `invalid_upload` | 上传文件名不合法、文件过大或目标目录已有同名文件 |
+| `401` | `unauthorized` | 服务配置了上传令牌，但请求未提供正确令牌 |
 | `404` | `package_not_found` | 目录不存在、目录不可读、没有合法 ZIP，或指定下载文件不存在 |
+| `404` | `directory_not_found` | 网页浏览或上传的目标目录不存在、越界或不可访问 |
 | `404` | `not_found` | URL 或 HTTP 方法没有匹配任何接口 |
+| `500` | `directory_read_failed` | 网页目录遍历过程中发生错误 |
+| `500` | `upload_failed` | 上传临时文件无法保存或重命名 |
 | `500` | `internal_error` | 读取文件、计算 SHA-256 等操作发生内部异常 |
 
 例如，`GET /api/version` 会返回 `not_found`，因为版本接口只接受 `POST`；正确 URL 但没有找到软件包时返回 `package_not_found`。
@@ -242,6 +307,8 @@ sha256sum v2.2.0.zip
 ```bash
 sudo install -d -o codeit -g codeit /opt/version-server
 sudo install -m 755 build/version-server /opt/version-server/version-server
+sudo install -d -o codeit -g codeit /opt/version-server/web
+sudo cp -R web/. /opt/version-server/web/
 sudo vim /etc/systemd/system/version-server.service
 ```
 
@@ -259,6 +326,9 @@ Group=codeit
 ExecStart=/opt/version-server/version-server
 # 默认根目录已经是 /home/codeit/update；使用其他目录时取消下一行注释并修改
 # Environment=CODEIT_PACKAGE_ROOT=/home/codeit/update
+Environment=CODEIT_WEB_ROOT=/opt/version-server/web
+# 生产环境建议设置上传令牌
+# Environment=CODEIT_UPLOAD_TOKEN=请替换为足够长的随机令牌
 Restart=always
 RestartSec=3
 
@@ -280,6 +350,7 @@ sudo systemctl status version-server --no-pager
 cmake --build build --clean-first -j
 sudo systemctl stop version-server
 sudo install -m 755 build/version-server /opt/version-server/version-server
+sudo cp -R web/. /opt/version-server/web/
 sudo systemctl start version-server
 ```
 
@@ -336,6 +407,7 @@ server
 {
     listen 28000;
     server_name _;
+    client_max_body_size 2g;
 
     location /api/
     {
@@ -345,11 +417,21 @@ server
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
     }
 
     location = /health
     {
         proxy_pass http://127.0.0.1:28001/health;
+    }
+
+    location /
+    {
+        proxy_pass http://127.0.0.1:28001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
     }
 }
 ```
